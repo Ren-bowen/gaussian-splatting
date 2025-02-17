@@ -15,9 +15,11 @@ from PIL import Image
 from typing import NamedTuple
 from scene.colmap_loader import read_extrinsics_text, read_intrinsics_text, qvec2rotmat, \
     read_extrinsics_binary, read_intrinsics_binary, read_points3D_binary, read_points3D_text
+from scene.json_loader import read_camera_mvhumannet
 from utils.graphics_utils import getWorld2View2, focal2fov, fov2focal
 import numpy as np
 import json
+import pickle
 from pathlib import Path
 from plyfile import PlyData, PlyElement
 from utils.sh_utils import SH2RGB
@@ -141,6 +143,28 @@ def storePly(path, xyz, rgb):
     vertex_element = PlyElement.describe(elements, 'vertex')
     ply_data = PlyData([vertex_element])
     ply_data.write(path)
+
+def readJsonSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8):
+    camera_extrinsics_file = os.path.join(path, 'camera_extrinsics.json')
+    camera_intrinsics_file = os.path.join(path, 'camera_intrinsics.json')
+    camera_scale = pickle.load(open(os.path.join(path, 'camera_scale.pkl'), 'rb'))
+    
+    cam_infos_unsorted = read_camera_mvhumannet(camera_intrinsics_file, camera_extrinsics_file, camera_scale)
+    cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
+
+    train_cam_infos = [c for c in cam_infos if train_test_exp or not c.is_test]
+    test_cam_infos = [c for c in cam_infos if c.is_test]
+    nerf_normalization = getNerfppNorm(train_cam_infos)
+
+    ply_path = os.path.join(path, "point_cloud.ply")
+
+    scene_info = SceneInfo(point_cloud=None,
+                            train_cameras=train_cam_infos,
+                            test_cameras=test_cam_infos,
+                            nerf_normalization=nerf_normalization,
+                            ply_path=ply_path,
+                            is_nerf_synthetic=False)
+    return scene_info
 
 def readColmapSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8):
     try:
